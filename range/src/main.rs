@@ -73,45 +73,54 @@ async fn get_ride_data(e: LambdaEvent<CustomEvent>) -> Result<Value, Error> {
             let datetime = utc_datetime.with_timezone(&offset);
             ride_month = datetime.format("%Y-%m").to_string();
 
-            if current_month.is_empty() {
-                current_month = ride_month.clone();
-            }
-            if ride_month != current_month {
-                if in_trip && curr_range > max_range {
-                    max_range = curr_range;
+            let year_str = ride_month.split('-').next().unwrap();
+            let year: u32 = year_str.parse().unwrap();
+            if year==2024 || year == 2023{
+                if let Some(input_month) = &payload.input_ride_month {
+                    if &ride_month != input_month {
+                        continue;
+                    }
                 }
-                let key = (imei.to_string(), current_month.clone());
-                let value: &mut f64 = imei_month_range.entry(key).or_insert(0.0);
-                if max_range > *value {
-                    *value = max_range;
+                if current_month.is_empty() {
+                    current_month = ride_month.clone();
                 }
-                curr_range = 0.0;
-                max_range = 0.0;
-                current_month = ride_month.clone();
-            }
-
-            if ride_type == "charging" {
-                if in_trip {
-                    if curr_range > max_range {
+                if ride_month != current_month {
+                    if in_trip && curr_range > max_range {
                         max_range = curr_range;
                     }
-                    if curr_range_yearly > max_range_yearly {
-                        max_range_yearly = curr_range_yearly;
+                    let key = (imei.to_string(), current_month.clone());
+                    let value: &mut f64 = imei_month_range.entry(key).or_insert(0.0);
+                    if max_range > *value {
+                        *value = max_range;
                     }
                     curr_range = 0.0;
-                    curr_range_yearly = 0.0;
+                    max_range = 0.0;
+                    current_month = ride_month.clone();
                 }
-                in_trip = false; 
-            } 
-            else if ride_type == "trip" {
-                if !in_trip {
-                    in_trip = true; 
+
+                if ride_type == "charging" {
+                    if in_trip {
+                        if curr_range > max_range {
+                            max_range = curr_range;
+                        }
+                        if curr_range_yearly > max_range_yearly {
+                            max_range_yearly = curr_range_yearly;
+                        }
+                        curr_range = 0.0;
+                        curr_range_yearly = 0.0;
+                    }
+                    in_trip = false; 
+                } 
+                else if ride_type == "trip" {
+                    if !in_trip {
+                        in_trip = true; 
+                    }
+                    let ride_stats_map = item.get("ride_stats").and_then(|v| v.as_m().ok()).unwrap();
+                    let range_str = ride_stats_map.get("ride_distance").and_then(|v| v.as_s().ok()).unwrap();
+                    let range: f64 = range_str.parse().unwrap_or(0.0);
+                    curr_range += range;
+                    curr_range_yearly += range;
                 }
-                let ride_stats_map = item.get("ride_stats").and_then(|v| v.as_m().ok()).unwrap();
-                let range_str = ride_stats_map.get("ride_distance").and_then(|v| v.as_s().ok()).unwrap();
-                let range: f64 = range_str.parse().unwrap_or(0.0);
-                curr_range += range;
-                curr_range_yearly += range;
             }
         }
 
@@ -144,17 +153,6 @@ async fn get_ride_data(e: LambdaEvent<CustomEvent>) -> Result<Value, Error> {
             .await?;
     } 
 
-    for ((imei, ride_month), max_range) in imei_month_range.iter() {
-        println!("imei: {}", imei);
-        println!("ride_month: {}", ride_month);
-        println!("max_range: {}", max_range);
-    }
-
-    for (imei, max_range_yearly) in imei_yearly_range.iter() {
-        println!("imei: {}", imei);
-        println!("max_range_yearly : {}", max_range_yearly);
-    }
-
     let output: Vec<CustomOutput> = imei_month_range.into_iter().map(|((imei, ride_month), total_range)| {
         CustomOutput {
             imei,
@@ -162,6 +160,7 @@ async fn get_ride_data(e: LambdaEvent<CustomEvent>) -> Result<Value, Error> {
             total_range,
         }
     }).collect();
+    
     Ok(json!(output))
 }
 
