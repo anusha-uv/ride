@@ -13,7 +13,6 @@ use chrono::{TimeZone, Utc, FixedOffset};
 
 #[derive(Debug, Clone, Deserialize, Default)]
 struct CustomEvent {
-    imeis: String,
     input_ride_month: Option<String>,
 }
 
@@ -33,7 +32,10 @@ async fn main() -> Result<(),Error>{
 
 async fn get_ride_data(e: LambdaEvent<CustomEvent>) -> Result<Value, Error> {
     let payload = e.payload;
-    if payload.imeis.is_empty() {
+
+    let imeis_env = std::env::var("IMEIS").unwrap_or_else(|_| String::new());
+    let imeis: Vec<&str> = imeis_env.split(',').collect();
+    if imeis.is_empty() {
         println!("Imei cannot be empty");
         return Ok(json!({"error": "IMEI cannot be empty"}));
     }
@@ -44,8 +46,7 @@ async fn get_ride_data(e: LambdaEvent<CustomEvent>) -> Result<Value, Error> {
 
     let mut imei_month_range: HashMap<(String, String), f64> = HashMap::new();
     let mut imei_yearly_range: HashMap<String, f64> = HashMap::new();
-    let imeis: Vec<&str> = payload.imeis.split(',').collect(); 
-
+    
     for imei in imeis {
         let items = match query_for_range(&client, imei).await {
             Ok(items) => items.unwrap_or_default(),
@@ -135,7 +136,6 @@ async fn get_ride_data(e: LambdaEvent<CustomEvent>) -> Result<Value, Error> {
         if max_range > *value {
             *value = max_range;
         }
-
         let key = imei.to_string();
         let value: &mut f64 = imei_yearly_range.entry(key).or_insert(0.0);
         if max_range_yearly > *value {
@@ -163,7 +163,6 @@ async fn get_ride_data(e: LambdaEvent<CustomEvent>) -> Result<Value, Error> {
     
     Ok(json!(output))
 }
-
 
 async fn query_for_range(
     client: &Client,
